@@ -1,0 +1,76 @@
+services:
+    haproxy:
+        image: haproxy
+        #ports:
+        #    - "1111:1111"
+        #    - "3333:3333"
+        volumes:
+            - ./haproxy:/usr/local/etc/haproxy
+        networks:
+            - targon-beers_targon-beers
+
+    mysql:
+        image: mysql:8
+        env_file: .env
+        environment:
+            - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+            - MYSQL_USER=${MYSQL_USER}
+            - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+            - MYSQL_DATABASE=${MYSQL_DATABASE}
+        volumes:
+            - mysql_data:/var/lib/mysql
+            - ./api/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+        ports:
+            - "3306:3306"
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        networks:
+            - targon-beers_targon-beers
+
+    api:
+        image: manifoldlabs/targon-verifier-proxy:${VERSION:-latest}
+        labels:
+            - traefik.enable=true
+            - traefik.http.routers.verifier.rule=Host(`${PROXY_URL}`)
+            - traefik.http.routers.verifier.tls=true
+            - traefik.http.routers.verifier.tls.certresolver=letsencrypt
+            - traefik.http.services.verifier.loadbalancer.server.port=80
+            - vector.enable
+        env_file: .env
+        build:
+            context: ./api
+        restart: always
+        depends_on:
+            mysql:
+                condition: service_healthy
+            haproxy:
+                condition: service_started
+        networks:
+            - targon-beers_targon-beers
+
+    vector:
+        image: timberio/vector:0.43.0-debian
+        environment:
+            - INFLUX_ENDPOINT=${INFLUX_ENDPOINT}
+            - INFLUX_TOKEN=${INFLUX_TOKEN}
+            - LOKI_ENDPOINT=${LOKI_ENDPOINT}
+            - LOKI_USERNAME=${LOKI_USERNAME}
+            - LOKI_PASSWORD=${LOKI_PASSWORD}
+        volumes:
+            - ./vector.toml:/etc/vector/vector.toml
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+        command: --config /etc/vector/vector.toml
+        restart: unless-stopped
+        networks:
+            - targon-beers_targon-beers
+
+volumes:
+    traefik-public-certificates:
+    mysql_data:
+
+networks:
+  targon-beers_targon-beers:
+    external: true
