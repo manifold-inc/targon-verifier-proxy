@@ -21,7 +21,7 @@ func Verify(c echo.Context) error {
 	var request shared.VerificationRequest
 	if err := c.Bind(&request); err != nil {
 		cc.Log.Errorw("Failed to parse request", "error", err.Error())
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"verified": false,
 			"error":    "Invalid request format",
 		})
@@ -29,7 +29,7 @@ func Verify(c echo.Context) error {
 
 	// Validate required fields
 	if missingField, isMissing := validateRequiredFields(cc, &request); isMissing {
-		return c.JSON(http.StatusBadRequest, map[string]interface{}{
+		return c.JSON(http.StatusBadRequest, map[string]any{
 			"verified": false,
 			"error":    "Missing required field: " + missingField,
 		})
@@ -37,7 +37,7 @@ func Verify(c echo.Context) error {
 
 	valid, err := validateAPIKey(cc)
 	if !valid {
-		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
+		return c.JSON(http.StatusUnauthorized, map[string]any{
 			"verified": false,
 			"error":    err.Error(),
 		})
@@ -77,29 +77,15 @@ func Verify(c echo.Context) error {
 	response, err := forwardToValis(cc, &request)
 	if err != nil {
 		cc.Log.Errorw("Verification failed", "error", err.Error(), "request_id", request.RequestID)
-		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
+		return c.JSON(http.StatusInternalServerError, map[string]any{
 			"verified": false,
 			"error":    "Verification service error: " + err.Error(),
 		})
 	}
 
 	if request.RequestID != "" && response != nil {
-		// Log verification result
-		cc.Log.Infow("Verification result",
-			"request_id", request.RequestID,
-			"verified", response.Verified,
-			"model", request.Model,
-			"error", response.Error,
-			"cause", response.Cause,
-		)
-
-		responseBytes, err := json.Marshal(response)
-		if err != nil {
-			cc.Log.Warnw("Failed to marshal response for caching", "error", err.Error(), "request_id", request.RequestID)
-		} else {
-			cc.Cfg.Cache.Set(request.RequestID, responseBytes, 72*time.Minute)
-			cc.Log.Infow("Cached response", "request_id", request.RequestID)
-		}
+		cc.Cfg.Cache.Set(request.RequestID, response, 72*time.Minute)
+		cc.Log.Infow("Cached response", "request_id", request.RequestID)
 	}
 
 	cc.Log.Infow("Verification completed",
@@ -174,7 +160,7 @@ func validateAPIKey(cc *shared.Context) (bool, error) {
 }
 
 // forwardToValis sends the verification request to the Valis service
-func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) (*shared.VerificationResponse, error) {
+func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) ([]byte, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
@@ -194,22 +180,21 @@ func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) (*share
 		)
 	}
 
-	var backendPath string
-
-	if req.Model == "deepseek-ai/DeepSeek-R1" {
-		backendPath = "/r1/verify"
-	} else if req.Model == "deepseek-ai/DeepSeek-V3" {
-		backendPath = "/v3/verify"
-	} else {
-		cc.Log.Errorw("Unsupported model", "model", req.Model)
-		return nil, fmt.Errorf("unsupported model: %s", req.Model)
-	}
-
-	backendURL := fmt.Sprintf("%s%s", cc.Cfg.Env.HaproxyURL, backendPath)
+	backendURL := fmt.Sprintf("%s/verify", cc.Cfg.Env.HaproxyURL)
 	httpReq, err := http.NewRequest(http.MethodPost, backendURL, bytes.NewReader(requestBody))
 	if err != nil {
 		cc.Log.Errorw("Failed to create request", "error", err.Error())
 		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	switch req.Model {
+	case "deepseek-ai/DeepSeek-R1":
+		httpReq.Header.Set("x-backend-server", "r1")
+	case "deepseek-ai/DeepSeek-V3":
+		httpReq.Header.Set("x-backend-server", "v3")
+	default:
+		cc.Log.Errorw("Unsupported model", "model", req.Model)
+		return nil, fmt.Errorf("unsupported model: %s", req.Model)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -227,38 +212,5 @@ func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) (*share
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var responseMap map[string]interface{}
-	if err := json.Unmarshal(body, &responseMap); err != nil {
-		cc.Log.Errorw("Failed to unmarshal response", "error", err.Error(), "body", string(body))
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if _, exists := responseMap["verified"]; !exists {
-		cc.Log.Warnw("Response missing 'verified' field", "response", responseMap)
-		responseMap["verified"] = false
-		responseMap["error"] = "Verification service response missing 'verified' field"
-	}
-
-	response := &shared.VerificationResponse{
-		RequestID: req.RequestID,
-	}
-
-	if verified, ok := responseMap["verified"].(bool); ok {
-		response.Verified = verified
-	}
-	if errorMsg, ok := responseMap["error"].(string); ok {
-		response.Error = errorMsg
-	}
-	if cause, ok := responseMap["cause"].(string); ok {
-		response.Cause = cause
-	}
-
-	response.InputTokens = responseMap["input_tokens"]
-	response.ResponseTokens = responseMap["response_tokens"]
-
-	if gpus, ok := responseMap["gpus"].(float64); ok {
-		response.GPUs = int(gpus)
-	}
-
-	return response, nil
+	return body, nil
 }
