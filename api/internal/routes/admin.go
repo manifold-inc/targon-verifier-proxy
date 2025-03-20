@@ -80,7 +80,7 @@ func AddKey(c echo.Context) error {
 	}
 
 	// Generate API key value
-	keyValue, err := nanoid.Generate("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_", 32)
+	keyValue, err := nanoid.Generate("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 32)
 	if err != nil {
 		cc.Log.Errorw("Failed to generate API key", "error", err.Error())
 		return c.JSON(http.StatusInternalServerError, map[string]string{
