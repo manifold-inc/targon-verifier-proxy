@@ -93,7 +93,7 @@ func Verify(c echo.Context) error {
 		"duration_ms", time.Since(startTime).Milliseconds(),
 	)
 
-	return c.JSON(http.StatusOK, response)
+	return c.JSONBlob(http.StatusOK, response)
 }
 
 // validateRequiredFields checks if all required fields are present in the request
@@ -162,7 +162,7 @@ func validateAPIKey(cc *shared.Context) (bool, error) {
 // forwardToValis sends the verification request to the Valis service
 func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) ([]byte, error) {
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 120 * time.Second,
 	}
 
 	requestBody, err := json.Marshal(req)
