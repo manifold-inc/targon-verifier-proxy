@@ -1,9 +1,6 @@
 services:
     haproxy:
         image: haproxy
-        #ports:
-        #    - "1111:1111"
-        #    - "3333:3333"
         volumes:
             - ./haproxy:/usr/local/etc/haproxy
         networks:
