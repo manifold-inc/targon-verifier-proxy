@@ -187,16 +187,7 @@ func forwardToValis(cc *shared.Context, req *shared.VerificationRequest) ([]byte
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	switch req.Model {
-	case "deepseek-ai/DeepSeek-R1":
-		httpReq.Header.Set("x-backend-server", "r1")
-	case "deepseek-ai/DeepSeek-V3":
-		httpReq.Header.Set("x-backend-server", "v3")
-	default:
-		cc.Log.Errorw("Unsupported model", "model", req.Model)
-		return nil, fmt.Errorf("unsupported model: %s", req.Model)
-	}
-
+	httpReq.Header.Set("x-backend-server", req.Model)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	httpResp, err := client.Do(httpReq)
