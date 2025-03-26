@@ -84,6 +84,10 @@ func Verify(c echo.Context) error {
 	}
 
 	if request.RequestID != "" && response != nil {
+		cc.Log.Infow("About to cache response",
+			"request_id", request.RequestID,
+			"response", string(response),
+		)
 		cc.Cfg.Cache.Set(request.RequestID, response, 72*time.Minute)
 		cc.Log.Infow("Cached response", "request_id", request.RequestID)
 	}
